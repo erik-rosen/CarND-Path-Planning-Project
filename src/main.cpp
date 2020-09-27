@@ -8,11 +8,13 @@
 #include "helpers.h"
 #include "json.hpp"
 #include "spline.h"
+#include <chrono>
 
 // for convenience
 using nlohmann::json;
 using std::string;
 using std::vector;
+using namespace std::chrono;
 
 int main() {
   uWS::Hub h;
@@ -26,10 +28,17 @@ int main() {
 
   // Waypoint map to read from
   string map_file_ = "../data/highway_map.csv";
+  // Recorded vehicle states from sensor fusion;
+  string other_vehicle_states_file_ = "../data/other_vehicles.csv";
+  bool record_other_vehicles = true;
   // The max s value before wrapping around the track back to 0
   double max_s = 6945.554;
 
   std::ifstream in_map_(map_file_.c_str(), std::ifstream::in);
+  std::ofstream other_vehicle_states_;
+  if(record_other_vehicles){
+      other_vehicle_states_.open(other_vehicle_states_file_.c_str(), std::ios::out | std::ios::app);
+  }
 
   string line;
   while (getline(in_map_, line)) {
@@ -51,13 +60,17 @@ int main() {
     map_waypoints_dy.push_back(d_y);
   }
 
-  double ref_velocity = 49.5;
+  double ref_velocity = 0;
   int lane = 1;
 
   h.onMessage([&ref_velocity,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
-               &map_waypoints_dx,&map_waypoints_dy,&lane]
+               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
+      //Record when data was received
+      milliseconds received_timestamp_ms = duration_cast< milliseconds >(
+              system_clock::now().time_since_epoch()
+      );
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
@@ -101,7 +114,31 @@ int main() {
           bool too_close = false;
           bool close = false;
           double car_in_front_velocity;
+          double car_in_front_distance;
 
+          //Write the vehicle states to file to enable us to use it for training.
+          //We only open the filestream at the start if record_vehicles is true
+          if(other_vehicle_states_.is_open()){
+              for(int i = 0; i < sensor_fusion.size(); i++){
+                  //first write the timestamp when the data was received
+                  other_vehicle_states_ << received_timestamp_ms.count();
+                  other_vehicle_states_ << ",";
+                  for(int j = 0; j < sensor_fusion[i].size(); j++){
+                      //then write the state of the vehicle
+                      other_vehicle_states_ << sensor_fusion[i][j] << ",";
+                  }
+                  //add s_dot and d_dot to the output
+                  double x = sensor_fusion[i][1];
+                  double y = sensor_fusion[i][2];
+                  double vx = sensor_fusion[i][3];
+                  double vy = sensor_fusion[i][4];
+                  vector<double> v_frenet = getS_dotD_dot(x, y, vx, vy, map_waypoints_x, map_waypoints_y);
+                  double s_dot = v_frenet[0];
+                  double d_dot = v_frenet[1];
+                  other_vehicle_states_ << s_dot << ",";
+                  other_vehicle_states_ << d_dot << "\n";
+              }
+          }
 
           for(int i = 0; i < sensor_fusion.size(); i++){
               float d = sensor_fusion[i][6];
@@ -114,6 +151,7 @@ int main() {
 
                   check_car_s += ((double)prev_size*0.02*check_speed); //projects cars s position into future
                   car_in_front_velocity = check_speed;
+                  car_in_front_distance = check_car_s-car_s;
                   if((check_car_s > car_s) && ((check_car_s-car_s)<25.0)){
                       too_close = true;
                   }
@@ -126,23 +164,22 @@ int main() {
           if(too_close){
               ref_velocity -=.224;
           }
-          else if(close && car_in_front_velocity<ref_velocity+0.3){
-              ref_velocity -=.224;
-          }
-          else if(close && car_in_front_velocity>ref_velocity-0.3){
+          else if(ref_velocity < 49.5){
               ref_velocity +=.224;
           }
-          else if(!close && ref_velocity < 49.5){
-              ref_velocity +=.224;
+
+          // TODO: If too close, we should check whether the lanes are safe to switch to, and switch lane
+
+          bool ll_safe = true;
+          bool rl_safe = true;
+          for(int i = 0; i < sensor_fusion.size(); i++){
+              //TODO: Predict each cars position in the future to see whether the lane will be safe to switch to.
+              //Simple case could be assuming that all cars will stay in the same lane and drive at their current speed
           }
+
 
           json msgJson;
 
-
-          /**
-           * TODO: define a path made up of (x,y) points that the car will visit
-           *   sequentially every .02 seconds
-           */
 
           vector<double> ptsx;
           vector<double> ptsy;

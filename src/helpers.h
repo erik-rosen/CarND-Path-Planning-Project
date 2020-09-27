@@ -4,6 +4,7 @@
 #include <math.h>
 #include <string>
 #include <vector>
+#include <iostream>
 
 // for convenience
 using std::string;
@@ -124,6 +125,33 @@ vector<double> getFrenet(double x, double y, double theta,
   frenet_s += distance(0,0,proj_x,proj_y);
 
   return {frenet_s,frenet_d};
+}
+
+vector<double> getS_dotD_dot(double x, double y, double vx, double vy,
+                         const vector<double> &maps_x,
+                         const vector<double> &maps_y) {
+    int next_wp = NextWaypoint(x,y, atan2(vy,vx), maps_x,maps_y);
+
+    int prev_wp;
+    prev_wp = next_wp-1;
+    if (next_wp == 0) {
+        prev_wp  = maps_x.size()-1;
+    }
+
+    double n_x = maps_x[next_wp]-maps_x[prev_wp];
+    double n_y = maps_y[next_wp]-maps_y[prev_wp];
+
+    // find the unit vectors pointing in the s and d directions
+    Eigen::Vector2d s(n_x, n_y);
+    s.normalize();
+    //d is perpendicular to s in the clockwise direction
+    Eigen::Vector2d d(s[1], -s[0]);
+    Eigen::Vector2d v(vx,vy);
+
+    //project v onto s and d
+    double s_dot = v.dot(s);
+    double d_dot = v.dot(d);
+    return {s_dot,d_dot,};
 }
 
 // Transform from Frenet s,d coordinates to Cartesian x,y
