@@ -130,7 +130,7 @@ vector<double> getFrenet(double x, double y, double theta,
 vector<double> getS_dotD_dot(double x, double y, double vx, double vy,
                          const vector<double> &maps_x,
                          const vector<double> &maps_y) {
-    int next_wp = NextWaypoint(x,y, atan2(vy,vx), maps_x,maps_y);
+    int next_wp = NextWaypoint(x,y, atan2(vy,vx), maps_x, maps_y);
 
     int prev_wp;
     prev_wp = next_wp-1;
@@ -151,7 +151,7 @@ vector<double> getS_dotD_dot(double x, double y, double vx, double vy,
     //project v onto s and d
     double s_dot = v.dot(s);
     double d_dot = v.dot(d);
-    return {s_dot,d_dot,};
+    return {s_dot,d_dot};
 }
 
 // Transform from Frenet s,d coordinates to Cartesian x,y

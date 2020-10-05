@@ -39,6 +39,7 @@ int main() {
   if(record_other_vehicles){
       other_vehicle_states_.open(other_vehicle_states_file_.c_str(), std::ios::out | std::ios::app);
   }
+  long last_recorded_timestamp_ms_ = 0;
 
   string line;
   while (getline(in_map_, line)) {
@@ -64,7 +65,7 @@ int main() {
   int lane = 1;
 
   h.onMessage([&ref_velocity,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
-               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_]
+               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_,&last_recorded_timestamp_ms_]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
       //Record when data was received
@@ -117,8 +118,9 @@ int main() {
           double car_in_front_distance;
 
           //Write the vehicle states to file to enable us to use it for training.
+          //Sample at every 0.5 seconds
           //We only open the filestream at the start if record_vehicles is true
-          if(other_vehicle_states_.is_open()){
+          if(other_vehicle_states_.is_open() && (received_timestamp_ms.count() - last_recorded_timestamp_ms_) > 500){
               for(int i = 0; i < sensor_fusion.size(); i++){
                   //first write the timestamp when the data was received
                   other_vehicle_states_ << received_timestamp_ms.count();
@@ -138,6 +140,7 @@ int main() {
                   other_vehicle_states_ << s_dot << ",";
                   other_vehicle_states_ << d_dot << "\n";
               }
+              last_recorded_timestamp_ms_ = received_timestamp_ms.count();
           }
 
           for(int i = 0; i < sensor_fusion.size(); i++){
