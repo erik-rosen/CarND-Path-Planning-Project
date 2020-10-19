@@ -9,6 +9,8 @@
 #include "json.hpp"
 #include "spline.h"
 #include <chrono>
+#include <algorithm>
+#include "gnuplot-iostream.h"
 
 // for convenience
 using nlohmann::json;
@@ -17,6 +19,8 @@ using std::vector;
 using namespace std::chrono;
 
 int main() {
+  Gnuplot gp;
+
   uWS::Hub h;
 
   // Load up map values for waypoint's x,y,s and d normalized normal vectors
@@ -30,7 +34,7 @@ int main() {
   string map_file_ = "../data/highway_map.csv";
   // Recorded vehicle states from sensor fusion;
   string other_vehicle_states_file_ = "../data/other_vehicles.csv";
-  bool record_other_vehicles = true;
+  bool record_other_vehicles = false;
   // The max s value before wrapping around the track back to 0
   double max_s = 6945.554;
 
@@ -65,7 +69,7 @@ int main() {
   int lane = 1;
 
   h.onMessage([&ref_velocity,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
-               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_,&last_recorded_timestamp_ms_]
+               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_,&last_recorded_timestamp_ms_,&max_s,&gp]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
       //Record when data was received
@@ -112,10 +116,6 @@ int main() {
               car_s = end_path_s;
           }
 
-          bool too_close = false;
-          bool close = false;
-          double car_in_front_velocity;
-          double car_in_front_distance;
 
           //Write the vehicle states to file to enable us to use it for training.
           //Sample at every 0.5 seconds
@@ -143,42 +143,113 @@ int main() {
               last_recorded_timestamp_ms_ = received_timestamp_ms.count();
           }
 
-          for(int i = 0; i < sensor_fusion.size(); i++){
-              float d = sensor_fusion[i][6];
-              //check if car is in my current lane
-              if(d < (2+4*lane+2) && d > (2+4*lane-2)){
-                  double vx = sensor_fusion[i][3];
-                  double vy = sensor_fusion[i][4];
-                  double check_speed = sqrt(vx*vx+vy*vy);
-                  double check_car_s = sensor_fusion[i][5];
+          vehicle_state current_state;
+          current_state.s = j[1]["s"];
+          current_state.d = j[1]["d"];
+          vector<double> v_frenet = getS_dotD_dot(car_x, car_y, car_speed*sin(car_yaw), car_speed*cos(car_yaw), map_waypoints_x, map_waypoints_y);
+          current_state.s_dot = v_frenet[0];
+          current_state.d_dot = v_frenet[1];
+          vehicle_state vehicle_in_front = get_state_of_closest_vehicle_in_front(sensor_fusion,current_state, map_waypoints_x, map_waypoints_y, max_s);
+          double dist = vehicle_in_front.s - current_state.s;
+          if (dist<0){
+              dist = max_s + dist;
+          }
+          //std::cout << "Vehicle in front s: " << vehicle_in_front.s << " s_dot: " << vehicle_in_front.s_dot << " d: " << vehicle_in_front.d << " dist: " << dist << std::endl;
 
-                  check_car_s += ((double)prev_size*0.02*check_speed); //projects cars s position into future
-                  car_in_front_velocity = check_speed;
-                  car_in_front_distance = check_car_s-car_s;
-                  if((check_car_s > car_s) && ((check_car_s-car_s)<25.0)){
-                      too_close = true;
+          enum State { track, slow_down, keep_speed_limit };
+          State state = keep_speed_limit;
+
+          if(dist<60.0){
+              state = track;
+          }
+          if(dist<30.0){
+              state = slow_down;
+          }
+
+          if(dist>=60.0){
+              state = keep_speed_limit;
+          }
+
+          //std::cout << state << std::endl;
+
+          switch (state){
+              case slow_down:
+                  ref_velocity -=.224;
+              case track:
+                  if(ref_velocity<vehicle_in_front.s_dot*2.24-1){
+                      ref_velocity +=.224;
+                  }else{
+                      ref_velocity -=.224;
                   }
-                  if((check_car_s > car_s) && ((check_car_s-car_s)<35.0)){
-                      close = true;
+              case keep_speed_limit:
+                  if(ref_velocity < 49.5) {
+                      ref_velocity += .224;
+                  }else{
+                      ref_velocity -= .224;
                   }
+          }
+
+          //Predict each cars position in the future to see whether the lane will be safe to switch to.
+          //vector <vector<vehicle_state>> predicted_paths = path_predictions(sensor_fusion, map_waypoints_x, map_waypoints_y);
+
+          //Generate lane switching trajectories to see whether there will be collisions.
+          /*
+          if(current_state.s_dot>0.1) {
+              vector<vehicle_state> trajectory_left = generate_trajectory(current_state, 2);
+              vector<vehicle_state> trajectory_center = generate_trajectory(current_state, 6);
+              vector<vehicle_state> trajectory_right = generate_trajectory(current_state, 10);
+              if (is_safe_trajectory(predicted_paths, trajectory_left)) {
+                  std::cout << "| ";
+              } else {
+                  std::cout << "|x";
+                  //std::cout << "Left not safe" << std::endl;
               }
+              if (is_safe_trajectory(predicted_paths, trajectory_center)) {
+                  std::cout << "| ";
+              } else {
+                  std::cout << "|x";
+                  //std::cout << "Center not safe" << std::endl;
+              }
+              if (is_safe_trajectory(predicted_paths, trajectory_right)) {
+                  std::cout << "| |" << std::endl;
+              } else {
+                  std::cout << "|x|" << std::endl;
+                  //std::cout << "Right not safe" << std::endl;
+              }
+          }*/
+
+
+          std::vector<std::pair<double, double>> ds_pts_car = {std::make_pair(current_state.d,current_state.s)};
+          gp << "set xrange [0:12]\nset yrange ["<< current_state.s - 20 <<":"<< current_state.s + 50 <<"]\n";
+          std::vector<std::pair<double, double>> ds_pts_other_cars;
+          for(int i = 0; i<sensor_fusion.size();i++){
+            ds_pts_other_cars.push_back(std::make_pair(sensor_fusion[i][6],sensor_fusion[i][5]));
+          }
+          gp << "plot" << gp.file1d(ds_pts_car) << "with points title 'ego_car'," << gp.file1d(ds_pts_other_cars) << "with points title 'other_cars'" << std::endl;
+
+
+          //Check if lanes are safe
+          vector <bool> lane_status = is_lane_safe(current_state, sensor_fusion, map_waypoints_x,
+            map_waypoints_y, max_s);
+          if (lane_status[0]) {
+                std::cout << "| ";
+          } else {
+                std::cout << "|x";
+                //std::cout << "Left not safe" << std::endl;
+          }
+          if (lane_status[1]) {
+              std::cout << "| ";
+          } else {
+              std::cout << "|x";
+              //std::cout << "Center not safe" << std::endl;
+          }
+          if (lane_status[2]) {
+              std::cout << "| |" << std::endl;
+          } else {
+              std::cout << "|x|" << std::endl;
+              //std::cout << "Right not safe" << std::endl;
           }
 
-          if(too_close){
-              ref_velocity -=.224;
-          }
-          else if(ref_velocity < 49.5){
-              ref_velocity +=.224;
-          }
-
-          // TODO: If too close, we should check whether the lanes are safe to switch to, and switch lane
-
-          bool ll_safe = true;
-          bool rl_safe = true;
-          for(int i = 0; i < sensor_fusion.size(); i++){
-              //TODO: Predict each cars position in the future to see whether the lane will be safe to switch to.
-              //Simple case could be assuming that all cars will stay in the same lane and drive at their current speed
-          }
 
 
           json msgJson;
@@ -204,11 +275,11 @@ int main() {
           }
           else
           {
-              ref_x = previous_path_x[prev_size-1];
-              ref_y = previous_path_y[prev_size-1];
+              ref_x = previous_path_x[std::min(prev_size,10)-1];
+              ref_y = previous_path_y[std::min(prev_size,10)-1];
 
-              double ref_x_prev = previous_path_x[prev_size-2];
-              double ref_y_prev = previous_path_y[prev_size-2];
+              double ref_x_prev = previous_path_x[std::min(prev_size,10)-2];
+              double ref_y_prev = previous_path_y[std::min(prev_size,10)-2];
               ref_yaw = atan2(ref_y-ref_y_prev,ref_x-ref_x_prev);
 
               ptsx.push_back(ref_x_prev);
@@ -218,6 +289,7 @@ int main() {
               ptsy.push_back(ref_y);
           }
 
+          car_s = getFrenet(ref_x,ref_y,ref_yaw, map_waypoints_x, map_waypoints_y)[0];
 
           vector<double> next_wp0 = getXY(car_s + 30,2.0 + 4.0 * lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
           vector<double> next_wp1 = getXY(car_s + 60,2.0 + 4.0 * lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
@@ -247,7 +319,7 @@ int main() {
           vector<double> next_x_vals;
           vector<double> next_y_vals;
 
-          for (int i =0; i < previous_path_x.size(); i++){
+          for (int i =0; i <std::min(prev_size,10); i++){
               next_x_vals.push_back(previous_path_x[i]);
               next_y_vals.push_back(previous_path_y[i]);
           }
@@ -258,7 +330,7 @@ int main() {
 
           double x_add_on = 0;
 
-          for(int i = 0; i<50-previous_path_x.size(); i++){
+          for(int i = 0; next_x_vals.size()<50; i++){
               double N = target_dist/(0.02*ref_velocity/2.24);
               double x_point = x_add_on + target_x/N;
               double y_point = s(x_point);

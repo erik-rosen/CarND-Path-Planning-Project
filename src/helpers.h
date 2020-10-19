@@ -5,10 +5,19 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include "spline.h"
+#include <limits>
 
 // for convenience
 using std::string;
 using std::vector;
+
+struct vehicle_state{
+    double s;
+    double d;
+    double s_dot;
+    double d_dot;
+};
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -181,5 +190,205 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s,
 
   return {x,y};
 }
+
+//naively assumes that vehicles will stay in their current lanes and keep their current speed
+vector <vector<vehicle_state>> path_predictions(vector <vector<double>> sensor_fusion, vector<double> map_waypoints_x,
+vector<double> map_waypoints_y){
+    vector <double> center_of_lanes = {2.0,6.0,10.0};
+    double timestep_ms = 200;
+    int timesteps_to_generate = 20;
+    vector <vector<vehicle_state>> predicted_paths;
+    for(int i = 0; i < sensor_fusion.size(); i++){
+        double x = sensor_fusion[i][1];
+        double y = sensor_fusion[i][2];
+        double vx = sensor_fusion[i][3];
+        double vy = sensor_fusion[i][4];
+        double s = sensor_fusion[i][5];
+        double d = sensor_fusion[i][6];
+        vector<double> v_frenet = getS_dotD_dot(x, y, vx, vy, map_waypoints_x, map_waypoints_y);
+        double s_dot = v_frenet[0];
+        double d_dot = v_frenet[1];
+        //if road velocity is not positive, skip prediction
+        if(s_dot<0.1){continue;}
+        //find the closest lane - assume that the car will be in the center of that lane in 20 meters
+        int min_idx;
+        double min_dist = std::numeric_limits<double>::max();
+        for(int j = 0; j < center_of_lanes.size(); j++){
+            double lateral_distance_to_jth_lane = fabs(center_of_lanes[j]-d);
+            if(lateral_distance_to_jth_lane<min_dist){
+                min_dist = lateral_distance_to_jth_lane;
+                min_idx = j;
+            }
+        }
+        double closest_center_lane = center_of_lanes[min_idx];
+        //generate a spline to the center of lane
+        tk::spline spline;
+        vector<double> wp0 = {s,d};
+        vector<double> wp1 = {s+s_dot*timestep_ms/1000, d}; //consider the current velocity in the spline shape
+        vector<double> wp2 = {s+20.0, closest_center_lane};
+        vector<double> wp3 = {s+150.0, closest_center_lane};
+        vector<double> pts_s = {wp0[0],wp1[0],wp2[0],wp3[0]};
+        vector<double> pts_d = {wp0[1],wp1[1],wp2[1],wp3[1]};
+        spline.set_points(pts_s,pts_d);
+        vector <vehicle_state> predicted_path;
+        for (int step = 0; step < timesteps_to_generate; step++){
+            vehicle_state state;
+            state.s = s + step * timestep_ms/1000 * s_dot;
+            state.d = spline(state.s);
+            predicted_path.push_back(state);
+        }
+        predicted_paths.push_back(predicted_path);
+    }
+    return predicted_paths;
+}
+
+//Generate a trajectory to get to the target lane.
+vector <vehicle_state> generate_trajectory(vehicle_state current_state, double target_d){
+    int timesteps_to_generate = 20;
+    double timestep_ms = 200;
+    //generate a spline to the target_d
+    tk::spline spline;
+    vector<double> wp0 = {current_state.s,current_state.d};
+    vector<double> wp1 = {current_state.s+current_state.s_dot*timestep_ms/1000,current_state.d};
+    vector<double> wp2 = {current_state.s+100,target_d};
+    vector<double> wp3 = {current_state.s+101,target_d};
+    vector<double> pts_s = {wp0[0],wp1[0],wp2[0],wp3[0]};
+    vector<double> pts_d = {wp0[1],wp1[1],wp2[1],wp3[1]};
+    spline.set_points(pts_s,pts_d);
+    vector <vehicle_state> trajectory;
+    for (int step = 0; step < timesteps_to_generate; step++){
+        vehicle_state state;
+        state.s = current_state.s + step * timestep_ms/1000 * current_state.s_dot;
+        state.d = spline(state.s);
+        trajectory.push_back(state);
+    }
+    return trajectory;
+}
+
+
+
+bool is_safe_trajectory(vector <vector<vehicle_state>> predicted_paths, vector <vehicle_state> ego_trajectory){
+    double safety_distance_s = 4;
+    double safety_distance_d = 2;
+    for(int i=0; i<ego_trajectory.size(); i++){
+        vehicle_state ego_vehicle_state = ego_trajectory[i];
+        for (auto const& predicted_path: predicted_paths) {
+            vehicle_state other_vehicle_state = predicted_path[i];
+            if(fabs(other_vehicle_state.s-ego_vehicle_state.s)<safety_distance_s && fabs(other_vehicle_state.d-ego_vehicle_state.d)<safety_distance_d){
+                std::chrono::milliseconds collision_id = std::chrono::duration_cast< std::chrono::milliseconds >(
+                        std::chrono::system_clock::now().time_since_epoch()
+                );
+
+                for (int j = 0; j < ego_trajectory.size(); j++){
+                    other_vehicle_state = predicted_path[j];
+                    ego_vehicle_state = ego_trajectory[j];
+                    /*
+                    if(j==i) {
+                        std::cout << other_vehicle_state.s << ',' << other_vehicle_state.d << ',' << ego_vehicle_state.s
+                                  << ',' << ego_vehicle_state.d << ',' << "Collision" << std::endl;
+                    }
+                    else {
+                        std::cout << other_vehicle_state.s << ',' << other_vehicle_state.d << ',' << ego_vehicle_state.s
+                                  << ',' << ego_vehicle_state.d << ',' << "No collision" << std::endl;
+                    }
+                     */
+                }
+
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+vehicle_state get_state_of_closest_vehicle_in_front(vector <vector<double>> sensor_fusion, vehicle_state ego_state, const vector<double>& map_waypoints_x,
+                                                    const vector<double>& map_waypoints_y, double max_s){
+    vehicle_state vehicle_in_front;
+    int min_idx = NULL;
+    double min_dist = std::numeric_limits<double>::max();
+    for(int i = 0; i < sensor_fusion.size(); i++) {
+        double s_other = sensor_fusion[i][5];
+        double d_other = sensor_fusion[i][6];
+        //check if in same lane
+        if(fabs(d_other - ego_state.d)>2){
+            continue; //Car is in a different lane
+        }
+
+        double dist_to_vehicle = s_other - ego_state.s;
+        //handle wraparound
+        if (dist_to_vehicle < 0){
+            dist_to_vehicle = max_s + dist_to_vehicle;
+        }
+
+        if (dist_to_vehicle<min_dist){
+            min_dist = dist_to_vehicle;
+            min_idx = i;
+        }
+    }
+    if(min_idx==NULL){
+        return vehicle_in_front;
+    } else {
+        double s = sensor_fusion[min_idx][5];
+        double d = sensor_fusion[min_idx][6];
+        double x = sensor_fusion[min_idx][1];
+        double y = sensor_fusion[min_idx][2];
+        double vx = sensor_fusion[min_idx][3];
+        double vy = sensor_fusion[min_idx][4];
+        vector<double> v_frenet = getS_dotD_dot(x, y, vx, vy, map_waypoints_x, map_waypoints_y);
+        double s_dot = v_frenet[0];
+        double d_dot = v_frenet[1];
+        vehicle_in_front.s = s;
+        vehicle_in_front.d = d;
+        vehicle_in_front.s_dot = s_dot;
+        vehicle_in_front.d_dot = d_dot;
+        return vehicle_in_front;
+    }
+}
+
+vector <bool> is_lane_safe(vehicle_state ego_state, vector <vector<double>> sensor_fusion, const vector<double>& map_waypoints_x,
+                           const vector<double>& map_waypoints_y, double max_s){
+    vector <double> center_of_lanes = {2.0,6.0,10.0};
+    double seconds_in_front = 2;
+    double buffer_meters_front = 30;
+    double buffer_meters_behind = 10;
+    double s_geofence_max = ego_state.s + buffer_meters_front;
+    double s_geofence_min = ego_state.s - buffer_meters_behind;
+    vector<bool> lane_safe = {true, true, true};
+    for(int i = 0; i < sensor_fusion.size(); i++) {
+        double s = sensor_fusion[i][5];
+        double d = sensor_fusion[i][6];
+        double x = sensor_fusion[i][1];
+        double y = sensor_fusion[i][2];
+        double vx = sensor_fusion[i][3];
+        double vy = sensor_fusion[i][4];
+        vector<double> v_frenet = getS_dotD_dot(x, y, vx, vy, map_waypoints_x, map_waypoints_y);
+        double s_dot = v_frenet[0];
+        double d_dot = v_frenet[1];
+        if(s+(s_dot - ego_state.s_dot)*seconds_in_front<s_geofence_max && s+(s_dot - ego_state.s_dot)*seconds_in_front>s_geofence_min) {
+            int closest_lane_other;
+            int closest_lane_ego;
+            double min_dist_other = std::numeric_limits<double>::max();
+            double min_dist_ego = std::numeric_limits<double>::max();
+            for (int j = 0; j < center_of_lanes.size(); j++) {
+                double lateral_distance_to_jth_lane_other = fabs(center_of_lanes[j] - d);
+                double lateral_distance_to_jth_lane_ego = fabs(center_of_lanes[j] - ego_state.d);
+                if (lateral_distance_to_jth_lane_other < min_dist_other) {
+                    min_dist_other = lateral_distance_to_jth_lane_other;
+                    closest_lane_other = j;
+                }
+                if (lateral_distance_to_jth_lane_ego < min_dist_ego) {
+                    min_dist_ego = lateral_distance_to_jth_lane_ego;
+                    closest_lane_ego = j;
+                }
+            }
+            if(closest_lane_ego==closest_lane_other && s<ego_state.s){continue;} //Never consider cars in same lane behind you
+            std::cout << "s_diff: " << s-ego_state.s << " d other: " << d << " relative s_dot: " << s_dot - ego_state.s_dot << std::endl;
+            lane_safe[closest_lane_other] = false;
+        }
+    }
+    return lane_safe;
+}
+
+
 
 #endif  // HELPERS_H
