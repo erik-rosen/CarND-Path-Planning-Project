@@ -345,6 +345,22 @@ vehicle_state get_state_of_closest_vehicle_in_front(vector <vector<double>> sens
     }
 }
 
+int closest_lane(double d){
+  vector <double> center_of_lanes = {2.0,6.0,10.0};
+  double min_dist = std::numeric_limits<double>::max();
+  int closest_lane;
+  for (int j = 0; j < center_of_lanes.size(); j++) {
+
+    double lateral_distance_to_jth_lane_ego = fabs(center_of_lanes[j] - d);
+
+    if (lateral_distance_to_jth_lane_ego < min_dist) {
+      min_dist = lateral_distance_to_jth_lane_ego;
+      closest_lane = j;
+    }
+  }
+  return closest_lane;
+}
+
 vector <bool> is_lane_safe(vehicle_state ego_state, vector <vector<double>> sensor_fusion, const vector<double>& map_waypoints_x,
                            const vector<double>& map_waypoints_y, double max_s){
     vector <double> center_of_lanes = {2.0,6.0,10.0};

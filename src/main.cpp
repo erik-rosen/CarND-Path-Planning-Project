@@ -68,9 +68,10 @@ int main() {
 
   double ref_velocity = 0;
   int lane = 1;
+  bool switching_lanes = false;
 
   h.onMessage([&ref_velocity,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
-               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_,&last_recorded_timestamp_ms_,&max_s,&gp]
+               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_,&last_recorded_timestamp_ms_,&max_s,&gp,&switching_lanes]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
       //Record when data was received
@@ -160,14 +161,14 @@ int main() {
           enum State { track, slow_down, keep_speed_limit };
           State state = keep_speed_limit;
 
-          if(dist<60.0){
+          if(dist<40.0){
               state = track;
           }
-          if(dist<30.0){
+          if(dist<20.0){
               state = slow_down;
           }
 
-          if(dist>=60.0){
+          if(dist>=40.0){
               state = keep_speed_limit;
           }
 
@@ -183,7 +184,7 @@ int main() {
                       ref_velocity -=.224;
                   }
               case keep_speed_limit:
-                  if(ref_velocity < 49.5) {
+                  if(ref_velocity < 49.0) {
                       ref_velocity += .224;
                   }else{
                       ref_velocity -= .224;
@@ -259,13 +260,21 @@ int main() {
               //std::cout << "Right not safe" << std::endl;
           }
 
-          if (state != keep_speed_limit && ref_velocity<49.5-5){
+
+
+          if(closest_lane(current_state.d) == lane){
+            switching_lanes = false;
+          }
+
+          if (!switching_lanes && state != keep_speed_limit ){
             if(lane-1>=0 && lane_status[lane-1]){ //left lane safe
               //switch to left lane
+              switching_lanes = true;
               lane--;
             }
             else if(lane+1<=2 && lane_status[lane+1]){ //left lane safe
               //switch to right lane
+              switching_lanes = true;
               lane++;
             }
           }
