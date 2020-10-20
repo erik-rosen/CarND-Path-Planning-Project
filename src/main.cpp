@@ -20,6 +20,7 @@ using namespace std::chrono;
 
 int main() {
   Gnuplot gp;
+  gp<<"set term qt font 'Arial,9'"<<std::endl;
 
   uWS::Hub h;
 
@@ -174,7 +175,7 @@ int main() {
 
           switch (state){
               case slow_down:
-                  ref_velocity -=.224;
+                  ref_velocity -=.224*2;
               case track:
                   if(ref_velocity<vehicle_in_front.s_dot*2.24-1){
                       ref_velocity +=.224;
@@ -225,7 +226,15 @@ int main() {
           for(int i = 0; i<sensor_fusion.size();i++){
             ds_pts_other_cars.push_back(std::make_pair(sensor_fusion[i][6],sensor_fusion[i][5]));
           }
-          gp << "plot" << gp.file1d(ds_pts_car) << "with points title 'ego_car'," << gp.file1d(ds_pts_other_cars) << "with points title 'other_cars'" << std::endl;
+
+          //gp << "set arrow from 2, graph 0 to 2, graph 1 lc rgb 'green'" << std::endl;
+          //gp << "set arrow from 4, graph 0 to 4, graph 1 nohead dt '-'" << std::endl;
+          //gp << "set arrow from 6, graph 0 to 6, graph 1 lc rgb 'green'" << std::endl;
+          //gp << "set arrow from 8, graph 0 to 8, graph 1 nohead dt '-'" << std::endl;
+          //gp << "set arrow from 10, graph 0 to 10, graph 1 lc rgb 'green'" << std::endl;
+          //gp << "plot '-' with points title 'ego car', '-' with points title 'other cars'" << std::endl;
+          //gp.send1d(ds_pts_car);
+          //gp.send1d(ds_pts_other_cars);
 
 
           //Check if lanes are safe
@@ -250,7 +259,16 @@ int main() {
               //std::cout << "Right not safe" << std::endl;
           }
 
-
+          if (state != keep_speed_limit && ref_velocity<49.5-5){
+            if(lane-1>=0 && lane_status[lane-1]){ //left lane safe
+              //switch to left lane
+              lane--;
+            }
+            else if(lane+1<=2 && lane_status[lane+1]){ //left lane safe
+              //switch to right lane
+              lane++;
+            }
+          }
 
           json msgJson;
 
@@ -275,11 +293,11 @@ int main() {
           }
           else
           {
-              ref_x = previous_path_x[std::min(prev_size,10)-1];
-              ref_y = previous_path_y[std::min(prev_size,10)-1];
+              ref_x = previous_path_x[std::min(prev_size,5)-1];
+              ref_y = previous_path_y[std::min(prev_size,5)-1];
 
-              double ref_x_prev = previous_path_x[std::min(prev_size,10)-2];
-              double ref_y_prev = previous_path_y[std::min(prev_size,10)-2];
+              double ref_x_prev = previous_path_x[std::min(prev_size,5)-2];
+              double ref_y_prev = previous_path_y[std::min(prev_size,5)-2];
               ref_yaw = atan2(ref_y-ref_y_prev,ref_x-ref_x_prev);
 
               ptsx.push_back(ref_x_prev);
@@ -319,7 +337,7 @@ int main() {
           vector<double> next_x_vals;
           vector<double> next_y_vals;
 
-          for (int i =0; i <std::min(prev_size,10); i++){
+          for (int i =0; i <std::min(prev_size,5); i++){
               next_x_vals.push_back(previous_path_x[i]);
               next_y_vals.push_back(previous_path_y[i]);
           }
@@ -330,7 +348,7 @@ int main() {
 
           double x_add_on = 0;
 
-          for(int i = 0; next_x_vals.size()<50; i++){
+          for(int i = 0; next_x_vals.size()<80; i++){
               double N = target_dist/(0.02*ref_velocity/2.24);
               double x_point = x_add_on + target_x/N;
               double y_point = s(x_point);

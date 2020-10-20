@@ -364,7 +364,7 @@ vector <bool> is_lane_safe(vehicle_state ego_state, vector <vector<double>> sens
         vector<double> v_frenet = getS_dotD_dot(x, y, vx, vy, map_waypoints_x, map_waypoints_y);
         double s_dot = v_frenet[0];
         double d_dot = v_frenet[1];
-        if(s+(s_dot - ego_state.s_dot)*seconds_in_front<s_geofence_max && s+(s_dot - ego_state.s_dot)*seconds_in_front>s_geofence_min) {
+        if(s<s_geofence_max && s>s_geofence_min) {
             int closest_lane_other;
             int closest_lane_ego;
             double min_dist_other = std::numeric_limits<double>::max();
@@ -382,7 +382,7 @@ vector <bool> is_lane_safe(vehicle_state ego_state, vector <vector<double>> sens
                 }
             }
             if(closest_lane_ego==closest_lane_other && s<ego_state.s){continue;} //Never consider cars in same lane behind you
-            std::cout << "s_diff: " << s-ego_state.s << " d other: " << d << " relative s_dot: " << s_dot - ego_state.s_dot << std::endl;
+            //std::cout << "s_diff: " << s-ego_state.s << " d other: " << d << " relative s_dot: " << s_dot - ego_state.s_dot << std::endl;
             lane_safe[closest_lane_other] = false;
         }
     }
