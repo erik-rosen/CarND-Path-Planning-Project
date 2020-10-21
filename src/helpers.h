@@ -301,50 +301,6 @@ bool is_safe_trajectory(vector <vector<vehicle_state>> predicted_paths, vector <
     return true;
 }
 
-vehicle_state get_state_of_closest_vehicle_in_front(vector <vector<double>> sensor_fusion, vehicle_state ego_state, const vector<double>& map_waypoints_x,
-                                                    const vector<double>& map_waypoints_y, double max_s){
-    vehicle_state vehicle_in_front;
-    int min_idx = NULL;
-    double min_dist = std::numeric_limits<double>::max();
-    for(int i = 0; i < sensor_fusion.size(); i++) {
-        double s_other = sensor_fusion[i][5];
-        double d_other = sensor_fusion[i][6];
-        //check if in same lane
-        if(fabs(d_other - ego_state.d)>2){
-            continue; //Car is in a different lane
-        }
-
-        double dist_to_vehicle = s_other - ego_state.s;
-        //handle wraparound
-        if (dist_to_vehicle < 0){
-            dist_to_vehicle = max_s + dist_to_vehicle;
-        }
-
-        if (dist_to_vehicle<min_dist){
-            min_dist = dist_to_vehicle;
-            min_idx = i;
-        }
-    }
-    if(min_idx==NULL){
-        return vehicle_in_front;
-    } else {
-        double s = sensor_fusion[min_idx][5];
-        double d = sensor_fusion[min_idx][6];
-        double x = sensor_fusion[min_idx][1];
-        double y = sensor_fusion[min_idx][2];
-        double vx = sensor_fusion[min_idx][3];
-        double vy = sensor_fusion[min_idx][4];
-        vector<double> v_frenet = getS_dotD_dot(x, y, vx, vy, map_waypoints_x, map_waypoints_y);
-        double s_dot = v_frenet[0];
-        double d_dot = v_frenet[1];
-        vehicle_in_front.s = s;
-        vehicle_in_front.d = d;
-        vehicle_in_front.s_dot = s_dot;
-        vehicle_in_front.d_dot = d_dot;
-        return vehicle_in_front;
-    }
-}
-
 int closest_lane(double d){
   vector <double> center_of_lanes = {2.0,6.0,10.0};
   double min_dist = std::numeric_limits<double>::max();
@@ -361,12 +317,57 @@ int closest_lane(double d){
   return closest_lane;
 }
 
+vehicle_state get_state_of_closest_vehicle_in_front(vector <vector<double>> sensor_fusion, vehicle_state ego_state, const vector<double>& map_waypoints_x,
+                                                    const vector<double>& map_waypoints_y, double max_s){
+  int ego_lane = closest_lane(ego_state.d);
+  vehicle_state vehicle_in_front;
+  int min_idx = NULL;
+  double min_dist = std::numeric_limits<double>::max();
+  for(int i = 0; i < sensor_fusion.size(); i++) {
+    double s_other = sensor_fusion[i][5];
+    double d_other = sensor_fusion[i][6];
+    //check if in same lane
+    if(closest_lane(d_other) != ego_lane){
+      continue; //Car is in a different lane
+    }
+
+    double dist_to_vehicle = s_other - ego_state.s;
+    //handle wraparound
+    if (dist_to_vehicle < 0){
+      dist_to_vehicle = max_s + dist_to_vehicle;
+    }
+
+    if (dist_to_vehicle<min_dist){
+      min_dist = dist_to_vehicle;
+      min_idx = i;
+    }
+  }
+  if(min_idx==NULL){
+    return vehicle_in_front;
+  } else {
+    double s = sensor_fusion[min_idx][5];
+    double d = sensor_fusion[min_idx][6];
+    double x = sensor_fusion[min_idx][1];
+    double y = sensor_fusion[min_idx][2];
+    double vx = sensor_fusion[min_idx][3];
+    double vy = sensor_fusion[min_idx][4];
+    vector<double> v_frenet = getS_dotD_dot(x, y, vx, vy, map_waypoints_x, map_waypoints_y);
+    double s_dot = v_frenet[0];
+    double d_dot = v_frenet[1];
+    vehicle_in_front.s = s;
+    vehicle_in_front.d = d;
+    vehicle_in_front.s_dot = s_dot;
+    vehicle_in_front.d_dot = d_dot;
+    return vehicle_in_front;
+  }
+}
+
 vector <bool> is_lane_safe(vehicle_state ego_state, vector <vector<double>> sensor_fusion, const vector<double>& map_waypoints_x,
                            const vector<double>& map_waypoints_y, double max_s){
     vector <double> center_of_lanes = {2.0,6.0,10.0};
     double seconds_in_front = 2;
-    double buffer_meters_front = 30;
-    double buffer_meters_behind = 10;
+    double buffer_meters_front = 35;
+    double buffer_meters_behind = 15;
     double s_geofence_max = ego_state.s + buffer_meters_front;
     double s_geofence_min = ego_state.s - buffer_meters_behind;
     vector<bool> lane_safe = {true, true, true};

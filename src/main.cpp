@@ -153,7 +153,7 @@ int main() {
           current_state.d_dot = v_frenet[1];
           vehicle_state vehicle_in_front = get_state_of_closest_vehicle_in_front(sensor_fusion,current_state, map_waypoints_x, map_waypoints_y, max_s);
           double dist = vehicle_in_front.s - current_state.s;
-          if (dist<0){
+          if (dist<0){ //Handle s wraparound
               dist = max_s + dist;
           }
           //std::cout << "Vehicle in front s: " << vehicle_in_front.s << " s_dot: " << vehicle_in_front.s_dot << " d: " << vehicle_in_front.d << " dist: " << dist << std::endl;
@@ -161,14 +161,14 @@ int main() {
           enum State { track, slow_down, keep_speed_limit };
           State state = keep_speed_limit;
 
-          if(dist<40.0){
+          if(dist<35.0){
               state = track;
           }
           if(dist<20.0){
               state = slow_down;
           }
 
-          if(dist>=40.0){
+          if(dist>=35.0){
               state = keep_speed_limit;
           }
 
@@ -260,12 +260,6 @@ int main() {
               //std::cout << "Right not safe" << std::endl;
           }
 
-
-
-          if(closest_lane(current_state.d) == lane){
-            switching_lanes = false;
-          }
-
           if (!switching_lanes && state != keep_speed_limit ){
             if(lane-1>=0 && lane_status[lane-1]){ //left lane safe
               //switch to left lane
@@ -277,6 +271,10 @@ int main() {
               switching_lanes = true;
               lane++;
             }
+          }
+
+          if(closest_lane(current_state.d) == lane){
+            switching_lanes = false;
           }
 
           json msgJson;
