@@ -10,7 +10,7 @@
 #include "spline.h"
 #include <chrono>
 #include <algorithm>
-#include "gnuplot-iostream.h"
+//#include "gnuplot-iostream.h"
 
 // for convenience
 using nlohmann::json;
@@ -19,8 +19,8 @@ using std::vector;
 using namespace std::chrono;
 
 int main() {
-  Gnuplot gp;
-  gp<<"set term qt font 'Arial,9'"<<std::endl;
+  //Gnuplot gp;
+  //gp<<"set term qt font 'Arial,9'"<<std::endl;
 
   uWS::Hub h;
 
@@ -37,7 +37,7 @@ int main() {
   string other_vehicle_states_file_ = "../data/other_vehicles.csv";
   bool record_other_vehicles = false;
   // The max s value before wrapping around the track back to 0
-  double max_s = 6945.554;
+  double const max_s = 6945.554;
 
   std::ifstream in_map_(map_file_.c_str(), std::ifstream::in);
   std::ofstream other_vehicle_states_;
@@ -71,7 +71,7 @@ int main() {
   bool switching_lanes = false;
 
   h.onMessage([&ref_velocity,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
-               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_,&last_recorded_timestamp_ms_,&max_s,&gp,&switching_lanes]
+               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_,&last_recorded_timestamp_ms_,&max_s,&switching_lanes]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
       //Record when data was received
@@ -221,12 +221,12 @@ int main() {
           }*/
 
 
-          std::vector<std::pair<double, double>> ds_pts_car = {std::make_pair(current_state.d,current_state.s)};
-          gp << "set xrange [0:12]\nset yrange ["<< current_state.s - 20 <<":"<< current_state.s + 50 <<"]\n";
-          std::vector<std::pair<double, double>> ds_pts_other_cars;
-          for(int i = 0; i<sensor_fusion.size();i++){
-            ds_pts_other_cars.push_back(std::make_pair(sensor_fusion[i][6],sensor_fusion[i][5]));
-          }
+          //std::vector<std::pair<double, double>> ds_pts_car = {std::make_pair(current_state.d,current_state.s)};
+          //gp << "set xrange [0:12]\nset yrange ["<< current_state.s - 20 <<":"<< current_state.s + 50 <<"]\n";
+          //std::vector<std::pair<double, double>> ds_pts_other_cars;
+          //for(int i = 0; i<sensor_fusion.size();i++){
+          //  ds_pts_other_cars.push_back(std::make_pair(sensor_fusion[i][6],sensor_fusion[i][5]));
+          //}
 
           //gp << "set arrow from 2, graph 0 to 2, graph 1 lc rgb 'green'" << std::endl;
           //gp << "set arrow from 4, graph 0 to 4, graph 1 nohead dt '-'" << std::endl;
