@@ -197,9 +197,7 @@ int closest_lane(double d){
   double min_dist = std::numeric_limits<double>::max();
   int closest_lane;
   for (int j = 0; j < center_of_lanes.size(); j++) {
-
     double lateral_distance_to_jth_lane_ego = fabs(center_of_lanes[j] - d);
-
     if (lateral_distance_to_jth_lane_ego < min_dist) {
       min_dist = lateral_distance_to_jth_lane_ego;
       closest_lane = j;
