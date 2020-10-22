@@ -19,8 +19,6 @@ using std::vector;
 using namespace std::chrono;
 
 int main() {
-  //Gnuplot gp;
-  //gp<<"set term qt font 'Arial,9'"<<std::endl;
 
   uWS::Hub h;
 
@@ -33,18 +31,10 @@ int main() {
 
   // Waypoint map to read from
   string map_file_ = "../data/highway_map.csv";
-  // Recorded vehicle states from sensor fusion;
-  string other_vehicle_states_file_ = "../data/other_vehicles.csv";
-  bool record_other_vehicles = false;
   // The max s value before wrapping around the track back to 0
   double const max_s = 6945.554;
 
   std::ifstream in_map_(map_file_.c_str(), std::ifstream::in);
-  std::ofstream other_vehicle_states_;
-  if(record_other_vehicles){
-      other_vehicle_states_.open(other_vehicle_states_file_.c_str(), std::ios::out | std::ios::app);
-  }
-  long last_recorded_timestamp_ms_ = 0;
 
   string line;
   while (getline(in_map_, line)) {
@@ -71,7 +61,7 @@ int main() {
   bool switching_lanes = false;
 
   h.onMessage([&ref_velocity,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
-               &map_waypoints_dx,&map_waypoints_dy,&lane,&other_vehicle_states_,&last_recorded_timestamp_ms_,&max_s,&switching_lanes]
+               &map_waypoints_dx,&map_waypoints_dy,&lane,&max_s,&switching_lanes]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
       //Record when data was received
@@ -96,8 +86,6 @@ int main() {
           // Main car's localization Data
           double car_x = j[1]["x"];
           double car_y = j[1]["y"];
-          double car_s = j[1]["s"];
-          double car_d = j[1]["d"];
           double car_yaw = j[1]["yaw"];
           double car_speed = j[1]["speed"];
 
@@ -114,29 +102,32 @@ int main() {
 
           int prev_size = previous_path_x.size();
 
-          if(prev_size >0){
-              car_s = end_path_s;
-          }
-
-          vehicle_state current_state;
-          current_state.s = j[1]["s"];
-          current_state.d = j[1]["d"];
+          //Set ego vehicle state in an vehicle_state struct for convenience
+          vehicle_state ego_vehicle_state;
+          ego_vehicle_state.s = j[1]["s"];
+          ego_vehicle_state.d = j[1]["d"];
           vector<double> v_frenet = getS_dotD_dot(car_x, car_y, car_speed*sin(car_yaw), car_speed*cos(car_yaw), map_waypoints_x, map_waypoints_y);
-          current_state.s_dot = v_frenet[0];
-          current_state.d_dot = v_frenet[1];
-          vehicle_state vehicle_in_front = get_state_of_closest_vehicle_in_front(sensor_fusion,current_state, map_waypoints_x, map_waypoints_y, max_s);
-          double dist = vehicle_in_front.s - current_state.s;
+          ego_vehicle_state.s_dot = v_frenet[0];
+          ego_vehicle_state.d_dot = v_frenet[1];
+
+          //Get the state of the closest vehicle in the same lane as the ego vehicle
+          //This state is used for determining target velocity of the ego vehicle
+          vehicle_state vehicle_in_front = get_state_of_closest_vehicle_in_front(sensor_fusion,ego_vehicle_state, map_waypoints_x, map_waypoints_y, max_s);
+          double dist = vehicle_in_front.s - ego_vehicle_state.s;
           if (dist<0){ //Handle s wraparound
               dist = max_s + dist;
           }
-          //std::cout << "Vehicle in front s: " << vehicle_in_front.s << " s_dot: " << vehicle_in_front.s_dot << " d: " << vehicle_in_front.d << " dist: " << dist << std::endl;
-          vector <bool> lane_status = is_lane_safe(current_state, sensor_fusion, map_waypoints_x,
-                                                   map_waypoints_y, max_s);
+
+          //Checks whether it is safe to switch to the other lanes
+          vector <bool> lane_safe_status = is_lane_safe(ego_vehicle_state, sensor_fusion, map_waypoints_x,
+                                                        map_waypoints_y, max_s);
+
 
           enum State { track, slow_down, keep_speed_limit };
           State state = keep_speed_limit;
 
-          if(dist<35.0||!lane_status[lane]){
+          //Distance to vehicle in front determines the state of the ego vehicle
+          if(dist<35.0){
               state = track;
           }
           if(dist<20.0){
@@ -147,12 +138,10 @@ int main() {
               state = keep_speed_limit;
           }
 
-          //std::cout << state << std::endl;
-
           switch (state){
               case slow_down:
                   ref_velocity -=.224*2;
-              case track:
+              case track: //Tracks the speed of the closest vehicle in front
                   if(ref_velocity<vehicle_in_front.s_dot*2.24-1){
                       ref_velocity +=.224;
                   }else{
@@ -166,48 +155,43 @@ int main() {
                   }
           }
 
-
-          if (lane_status[0]) {
+          //For debugging:
+          if (lane_safe_status[0]) {
                 std::cout << "| ";
           } else {
                 std::cout << "|x";
-                //std::cout << "Left not safe" << std::endl;
           }
-          if (lane_status[1]) {
+          if (lane_safe_status[1]) {
               std::cout << "| ";
           } else {
               std::cout << "|x";
-              //std::cout << "Center not safe" << std::endl;
           }
-          if (lane_status[2]) {
+          if (lane_safe_status[2]) {
               std::cout << "| |";
           } else {
               std::cout << "|x|";
-              //std::cout << "Right not safe" << std::endl;
           }
-
           std::cout << "  Vehicle in front s: " << vehicle_in_front.s << " s_dot: " << vehicle_in_front.s_dot << " d: " << vehicle_in_front.d << " dist: " << dist << std::endl;
 
-
+          //Check whether we should switch lane
           if (!switching_lanes && state != keep_speed_limit ){
-            if(lane-1>=0 && lane_status[lane-1]){ //left lane safe
+            if(lane-1>=0 && lane_safe_status[lane - 1]){ //left lane safe
               //switch to left lane
               switching_lanes = true;
               lane--;
             }
-            else if(lane+1<=2 && lane_status[lane+1]){ //left lane safe
+            else if(lane+1<=2 && lane_safe_status[lane + 1]){ //left lane safe
               //switch to right lane
               switching_lanes = true;
               lane++;
             }
           }
 
-          if(closest_lane(current_state.d) == lane){
+          //Check whether we've reached the target lane.
+          //We only update the target lane once we've reached the previous target lane
+          if(closest_lane(ego_vehicle_state.d) == lane){
             switching_lanes = false;
           }
-
-          json msgJson;
-
 
           vector<double> ptsx;
           vector<double> ptsy;
@@ -243,11 +227,11 @@ int main() {
               ptsy.push_back(ref_y);
           }
 
-          car_s = getFrenet(ref_x,ref_y,ref_yaw, map_waypoints_x, map_waypoints_y)[0];
+          double ref_car_s = getFrenet(ref_x,ref_y,ref_yaw, map_waypoints_x, map_waypoints_y)[0];
 
-          vector<double> next_wp0 = getXY(car_s + 30,2.0 + 4.0 * lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-          vector<double> next_wp1 = getXY(car_s + 60,2.0 + 4.0 * lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-          vector<double> next_wp2 = getXY(car_s + 90,2.0 + 4.0 * lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp0 = getXY(ref_car_s + 30,2.0 + 4.0 * lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp1 = getXY(ref_car_s + 60,2.0 + 4.0 * lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp2 = getXY(ref_car_s + 90,2.0 + 4.0 * lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
 
           ptsx.push_back(next_wp0[0]);
           ptsx.push_back(next_wp1[0]);
@@ -267,9 +251,7 @@ int main() {
           }
 
           tk::spline s;
-
           s.set_points(ptsx, ptsy);
-
           vector<double> next_x_vals;
           vector<double> next_y_vals;
 
@@ -304,8 +286,8 @@ int main() {
               next_y_vals.push_back(y_point);
           }
 
-
-
+          //Send trajectory
+          json msgJson;
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
