@@ -118,33 +118,6 @@ int main() {
               car_s = end_path_s;
           }
 
-
-          //Write the vehicle states to file to enable us to use it for training.
-          //Sample at every 0.5 seconds
-          //We only open the filestream at the start if record_vehicles is true
-          if(other_vehicle_states_.is_open() && (received_timestamp_ms.count() - last_recorded_timestamp_ms_) > 500){
-              for(int i = 0; i < sensor_fusion.size(); i++){
-                  //first write the timestamp when the data was received
-                  other_vehicle_states_ << received_timestamp_ms.count();
-                  other_vehicle_states_ << ",";
-                  for(int j = 0; j < sensor_fusion[i].size(); j++){
-                      //then write the state of the vehicle
-                      other_vehicle_states_ << sensor_fusion[i][j] << ",";
-                  }
-                  //add s_dot and d_dot to the output
-                  double x = sensor_fusion[i][1];
-                  double y = sensor_fusion[i][2];
-                  double vx = sensor_fusion[i][3];
-                  double vy = sensor_fusion[i][4];
-                  vector<double> v_frenet = getS_dotD_dot(x, y, vx, vy, map_waypoints_x, map_waypoints_y);
-                  double s_dot = v_frenet[0];
-                  double d_dot = v_frenet[1];
-                  other_vehicle_states_ << s_dot << ",";
-                  other_vehicle_states_ << d_dot << "\n";
-              }
-              last_recorded_timestamp_ms_ = received_timestamp_ms.count();
-          }
-
           vehicle_state current_state;
           current_state.s = j[1]["s"];
           current_state.d = j[1]["d"];
@@ -157,11 +130,13 @@ int main() {
               dist = max_s + dist;
           }
           //std::cout << "Vehicle in front s: " << vehicle_in_front.s << " s_dot: " << vehicle_in_front.s_dot << " d: " << vehicle_in_front.d << " dist: " << dist << std::endl;
+          vector <bool> lane_status = is_lane_safe(current_state, sensor_fusion, map_waypoints_x,
+                                                   map_waypoints_y, max_s);
 
           enum State { track, slow_down, keep_speed_limit };
           State state = keep_speed_limit;
 
-          if(dist<35.0){
+          if(dist<35.0||!lane_status[lane]){
               state = track;
           }
           if(dist<20.0){
@@ -191,56 +166,7 @@ int main() {
                   }
           }
 
-          //Predict each cars position in the future to see whether the lane will be safe to switch to.
-          //vector <vector<vehicle_state>> predicted_paths = path_predictions(sensor_fusion, map_waypoints_x, map_waypoints_y);
 
-          //Generate lane switching trajectories to see whether there will be collisions.
-          /*
-          if(current_state.s_dot>0.1) {
-              vector<vehicle_state> trajectory_left = generate_trajectory(current_state, 2);
-              vector<vehicle_state> trajectory_center = generate_trajectory(current_state, 6);
-              vector<vehicle_state> trajectory_right = generate_trajectory(current_state, 10);
-              if (is_safe_trajectory(predicted_paths, trajectory_left)) {
-                  std::cout << "| ";
-              } else {
-                  std::cout << "|x";
-                  //std::cout << "Left not safe" << std::endl;
-              }
-              if (is_safe_trajectory(predicted_paths, trajectory_center)) {
-                  std::cout << "| ";
-              } else {
-                  std::cout << "|x";
-                  //std::cout << "Center not safe" << std::endl;
-              }
-              if (is_safe_trajectory(predicted_paths, trajectory_right)) {
-                  std::cout << "| |" << std::endl;
-              } else {
-                  std::cout << "|x|" << std::endl;
-                  //std::cout << "Right not safe" << std::endl;
-              }
-          }*/
-
-
-          //std::vector<std::pair<double, double>> ds_pts_car = {std::make_pair(current_state.d,current_state.s)};
-          //gp << "set xrange [0:12]\nset yrange ["<< current_state.s - 20 <<":"<< current_state.s + 50 <<"]\n";
-          //std::vector<std::pair<double, double>> ds_pts_other_cars;
-          //for(int i = 0; i<sensor_fusion.size();i++){
-          //  ds_pts_other_cars.push_back(std::make_pair(sensor_fusion[i][6],sensor_fusion[i][5]));
-          //}
-
-          //gp << "set arrow from 2, graph 0 to 2, graph 1 lc rgb 'green'" << std::endl;
-          //gp << "set arrow from 4, graph 0 to 4, graph 1 nohead dt '-'" << std::endl;
-          //gp << "set arrow from 6, graph 0 to 6, graph 1 lc rgb 'green'" << std::endl;
-          //gp << "set arrow from 8, graph 0 to 8, graph 1 nohead dt '-'" << std::endl;
-          //gp << "set arrow from 10, graph 0 to 10, graph 1 lc rgb 'green'" << std::endl;
-          //gp << "plot '-' with points title 'ego car', '-' with points title 'other cars'" << std::endl;
-          //gp.send1d(ds_pts_car);
-          //gp.send1d(ds_pts_other_cars);
-
-
-          //Check if lanes are safe
-          vector <bool> lane_status = is_lane_safe(current_state, sensor_fusion, map_waypoints_x,
-            map_waypoints_y, max_s);
           if (lane_status[0]) {
                 std::cout << "| ";
           } else {
@@ -254,11 +180,14 @@ int main() {
               //std::cout << "Center not safe" << std::endl;
           }
           if (lane_status[2]) {
-              std::cout << "| |" << std::endl;
+              std::cout << "| |";
           } else {
-              std::cout << "|x|" << std::endl;
+              std::cout << "|x|";
               //std::cout << "Right not safe" << std::endl;
           }
+
+          std::cout << "  Vehicle in front s: " << vehicle_in_front.s << " s_dot: " << vehicle_in_front.s_dot << " d: " << vehicle_in_front.d << " dist: " << dist << std::endl;
+
 
           if (!switching_lanes && state != keep_speed_limit ){
             if(lane-1>=0 && lane_status[lane-1]){ //left lane safe

@@ -318,14 +318,14 @@ int closest_lane(double d){
 }
 
 vehicle_state get_state_of_closest_vehicle_in_front(vector <vector<double>> sensor_fusion, vehicle_state ego_state, const vector<double>& map_waypoints_x,
-                                                    const vector<double>& map_waypoints_y, double max_s){
+                                                    const vector<double>& map_waypoints_y, const double max_s){
   int ego_lane = closest_lane(ego_state.d);
   vehicle_state vehicle_in_front;
-  int min_idx = NULL;
-  double min_dist = std::numeric_limits<double>::max();
-  for(int i = 0; i < sensor_fusion.size(); i++) {
-    double s_other = sensor_fusion[i][5];
-    double d_other = sensor_fusion[i][6];
+  int min_idx = -1;
+  double min_dist = max_s;
+  for(int k = 0; k < sensor_fusion.size(); ++k) {
+    double s_other = sensor_fusion[k][5];
+    double d_other = sensor_fusion[k][6];
     //check if in same lane
     if(closest_lane(d_other) != ego_lane){
       continue; //Car is in a different lane
@@ -337,12 +337,19 @@ vehicle_state get_state_of_closest_vehicle_in_front(vector <vector<double>> sens
       dist_to_vehicle = max_s + dist_to_vehicle;
     }
 
-    if (dist_to_vehicle<min_dist){
+    if (dist_to_vehicle<=min_dist){
       min_dist = dist_to_vehicle;
-      min_idx = i;
+      min_idx = k;
     }
   }
-  if(min_idx==NULL){
+  if(min_idx==-1){
+    /* debugging
+    std::cout << "No vehicle in same lane. Own car: " << ego_lane << " Other cars: ";
+    for (int j =0; j < sensor_fusion.size(); j++) {
+      std::cout << closest_lane(sensor_fusion[j][6])<< ", ";
+    }
+    std::cout << std::endl;
+     */
     return vehicle_in_front;
   } else {
     double s = sensor_fusion[min_idx][5];
