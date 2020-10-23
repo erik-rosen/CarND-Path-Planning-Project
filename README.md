@@ -20,8 +20,8 @@ On a high level, the path planner uses a finite state machine with 6 different s
  #### Velocity
 
 * Keep speed limit: Match own vehicle reference velocity to something close to the speed limit.
-* Track: Match the reference velocity of the closest vehicle in front in the same lane.
-* Slow down: Slow down - reduces the reference velocity of the own vehicle by 1 meter per second every second.
+* Track: Match the own vehicle reference velocity to the velocity of the closest vehicle in front in the same lane.
+* Slow down: Slow down - reduces the own vehicle reference velocity of the own vehicle by 1 meter per second every second.
 
 As long as the closest vehicle in front in the same lane is further than 35 meters away, the ego vehicles will assume state *Keep speed limit*, if the distance to the closest vehicle in front in the same lane is between 20-35 meters, we will try to *track* and match the ego vehicles velocity to the vehicle in front of it. If the distance is less than 20 meters to the closest vehicle in front in the same lane, the ego vehicle will *slow down* to increase the distance to the vehicle in front.
 
