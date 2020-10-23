@@ -5,19 +5,19 @@ This project contains a working highway path planner implementation, which was b
 
 _Fig 1: Output of path planner - safely navigating a trafficated highway._
 
-### Project Goals
+## Project Goals
 In this project the goal is to safely navigate around a virtual highway with other traffic that is driving +-10 MPH of the 50 MPH speed limit. The simulator provides us with the car's localization and sensor fusion data and there is also a sparse map list of waypoints around the highway. The goal is for the car should to go as close as possible to the 50 MPH speed limit, which means passing slower traffic when possible. Other cars will try to change lanes too, adding further complexity to the problem. 
 
 
-### Path Planning
+## Path Planning
 
 On a high level, the path planner uses a finite state machine with 6 different states to successfully avoid hitting other cars and adhering to traffic laws, while still working to minimize the travel time.
 
-#### State machine
+### State machine
 
  Each state can be split up into two components, where one governs the velocity of the vehicle, and the other governs whether or not to switch lane. The velocity control component of the state machine can take 3 different values: 
  
- ###### Velocity
+ #### Velocity
 
 * Keep speed limit: Match own vehicle reference velocity to something close to the speed limit.
 * Track: Match the reference velocity of the closest vehicle in front in the same lane.
@@ -27,7 +27,7 @@ As long as the closest vehicle in front in the same lane is further than 35 mete
 
 The reference velocity is used to compute the trajectory - see *Trajectory Generation*
 
-##### Lane switch
+#### Lane switch
 
 The second part of the state machine governs lane switching. This takes on two different values:
 
@@ -43,7 +43,7 @@ Upon entering a state where the late switch component becomes: *Switching lane*,
 
 The car will enter the *keeping lane* state if the target lane center is the most proximate lane center to the car.
 
-##### Safe lane checking
+#### Safe lane checking
 
 The path planner uses a simple bounding box in frenet space to determine whether a lane is safe to switch to or not. If the lane is empty 35 meters ahead of the own vehicle and 15 meters behind the own vehicle, the lane is determined safe to change to. 
 
@@ -55,11 +55,11 @@ I attempted several more sophisticated approaches to determine whether or not a 
 The above predictions would be compared to generated ego vehicle lane switching trajectories to check for collisions/unsafe distances. The more sophisticated approaches introduced a lot of complexity and it turned out that for this scenario, the simplest bounding box checking approach was good enough.
  
 
-#### Trajectory generation
+### Trajectory generation
 
 Lorem ipsum dolor amet
 
-### Simulator.
+## Simulator.
 You can download the Term3 Simulator which contains the Path Planning Project from the [releases tab (https://github.com/udacity/self-driving-car-sim/releases/tag/T3_v1.2).  
 
 To run the simulator on Mac/Linux, first make the binary file executable with the following command:
