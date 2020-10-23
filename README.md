@@ -15,37 +15,47 @@ On a high level, the path planner uses a finite state machine with 6 different s
 
 #### State machine
 
- Each state can be split up into two part, where one governs the velocity of the vehicle, and the other governs whether or not to switch lane. The velocity control part of the state machine can take 3 different states: 
+ Each state can be split up into two components, where one governs the velocity of the vehicle, and the other governs whether or not to switch lane. The velocity control component of the state machine can take 3 different values: 
  
  ###### Velocity
 
-* Keep speed limit: Match own vehicle velocity to something close to the speed limit.
-* Track: Match the velocity of the closest vehicle in front in the same lane.
-* Slow down: Slow down - reduces the velocity by 1 meter per second every second.
+* Keep speed limit: Match own vehicle reference velocity to something close to the speed limit.
+* Track: Match the reference velocity of the closest vehicle in front in the same lane.
+* Slow down: Slow down - reduces the reference velocity of the own vehicle by 1 meter per second every second.
 
 As long as the closest vehicle in front in the same lane is further than 35 meters away, the ego vehicles will assume state *Keep speed limit*, if the distance to the closest vehicle in front in the same lane is between 20-35 meters, we will try to *track* and match the ego vehicles velocity to the vehicle in front of it. If the distance is less than 20 meters to the closest vehicle in front in the same lane, the ego vehicle will *slow down* to increase the distance to the vehicle in front.
 
+The reference velocity is used to compute the trajectory - see *Trajectory Generation*
+
 ##### Lane switch
 
-The second part of the state machine governs lane switching. This takes on two different states:
+The second part of the state machine governs lane switching. This takes on two different values:
 
 * Keeping lane
 * Switching lane
 
 The car will enter the *switch lane* state if both of the below are true: 
 
-* It is currently not in the *Keep speed limit* state 
+* It is currently not in a state where the velocity control state component is *Keep speed limit*  
 * Either of the adjacent lanes are safe to switch to
 
-Upon entering the *Keep speed limit* state, the target lane is either decreased by one (switch to lane left of the car), or increased by one (switch to lane right of the car).
+Upon entering a state where the late switch component becomes: *Switching lane*, the target lane is either decreased by one (switch to lane left of the car), or increased by one (switch to lane right of the car). This is used by the *trajectory generation* - see below.
 
 The car will enter the *keeping lane* state if the target lane center is the most proximate lane center to the car.
 
 ##### Safe lane checking
 
-Lorem ipsum dolor amet
+The path planner uses a simple bounding box in frenet space to determine whether a lane is safe to switch to or not. If the lane is empty 35 meters ahead of the own vehicle and 15 meters behind the own vehicle, the lane is determined safe to change to. 
 
-#### Path generation
+I attempted several more sophisticated approaches to determine whether or not a lane is safe to switch to - including more advanced prediction of other vehicles future position: 
+ * A gaussian naive bayes classifier with a motion model to predict the future position of cars
+ * A neural net which predicted the position of other cars 1-10 seconds in the future
+ * A motion model assuming constant velocity and no lane changes
+ 
+The above predictions would be compared to generated ego vehicle lane switching trajectories to check for collisions/unsafe distances. The more sophisticated approaches introduced a lot of complexity and it turned out that for this scenario, the simplest bounding box checking approach was good enough.
+ 
+
+#### Trajectory generation
 
 Lorem ipsum dolor amet
 
