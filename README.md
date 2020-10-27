@@ -1,4 +1,4 @@
-# CarND-Path-Planning-Project
+# Self Driving Car: Path-Planner
 This project contains a working highway driving path planner implementation, which was built as part of the Self-Driving Car Engineer Nanodegree Program
   
 ![alt text](path_planning.gif "Path Planner in Action")
